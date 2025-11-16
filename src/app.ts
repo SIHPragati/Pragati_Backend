@@ -5,6 +5,11 @@ import morgan from "morgan";
 import { ZodError } from "zod";
 import { apiRouter } from "./routes";
 
+// Ensure BigInt IDs serialize cleanly in JSON responses
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function toJSON() {
+  return this.toString();
+};
+
 export const createApp = () => {
   const app = express();
   app.use(helmet());

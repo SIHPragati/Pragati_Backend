@@ -12,7 +12,7 @@ export const notificationRouter = Router();
 
 notificationRouter.post(
   "/notifications",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   validateBody(createNotificationSchema),
   asyncHandler(async (req, res) => {
     const {
@@ -25,6 +25,9 @@ notificationRouter.post(
       req.user.teacher &&
       req.user.teacher.schoolId !== notificationPayload.schoolId
     ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    if (req.user?.role === "PRINCIPAL" && req.user.schoolId !== notificationPayload.schoolId) {
       return res.status(403).json({ message: "Forbidden" });
     }
 

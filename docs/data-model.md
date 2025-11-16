@@ -6,6 +6,7 @@ This schema targets a MySQL 8.x deployment for a student attendance and notifica
 ```
 Schools 1─∞ Grades 1─∞ Sections 1─∞ Classrooms
 Students ∞─1 Classrooms
+Teachers 1─∞ Students (homerooms via classTeacherId)
 Teachers ∞─∞ Subjects (via teacher_subjects)
 Students ∞─∞ Subjects (via student_subjects -> teacher_subjects)
 Subjects 1─∞ Exams 1─∞ StudentExamResults
@@ -63,6 +64,7 @@ Represents a unique grade+section within a school-year.
 | `classroom_id` | BIGINT FK     | -> `classrooms.id`                                 |
 | `code`         | VARCHAR(30)   | human readable ID, unique per school               |
 | `phone_number` | VARCHAR(15)   | optional unique phone, enables per-student lookups  |
+| `class_teacher_id` | BIGINT FK | -> `teachers.id`, homeroom owner, nullable |
 | `first_name`   | VARCHAR(60)   |                                                    |
 | `last_name`    | VARCHAR(60)   |                                                    |
 | `grade_level`  | TINYINT       | cached for quick reads                             |
@@ -90,7 +92,7 @@ Represents a unique grade+section within a school-year.
 | `email`       | VARCHAR(120) | unique login                                                |
 | `phone_number`| VARCHAR(15)  | optional unique contact                                     |
 | `password_hash`| VARCHAR(255)| bcrypt hash                                                 |
-| `role`        | ENUM         | ('STUDENT','TEACHER','GOVERNMENT','ADMIN')                  |
+| `role`        | ENUM         | ('STUDENT','TEACHER','GOVERNMENT','PRINCIPAL','ADMIN')      |
 | `status`      | ENUM         | ('active','blocked')                                       |
 | `student_id`  | BIGINT FK    | optional pointer to `students.id`                          |
 | `teacher_id`  | BIGINT FK    | optional pointer to `teachers.id`                          |
@@ -156,6 +158,27 @@ Reusable sets of students (clubs, bus routes, remediation batches) for notificat
 | `added_by`    | BIGINT FK   | -> `teachers.id` or admin users                   |
 | Unique        | (`group_id`,`student_id`)                                        |
 
+## Scheduling
+
+### `classroom_timetables`
+Represents the canonical weekly timetable per classroom (grade-section) and period.
+
+| Column             | Type        | Notes                                                             |
+|--------------------|-------------|-------------------------------------------------------------------|
+| `id`               | BIGINT PK   |                                                                   |
+| `school_id`        | BIGINT FK   | -> `schools.id`                                                   |
+| `classroom_id`     | BIGINT FK   | -> `classrooms.id`                                                |
+| `week_day`         | TINYINT     | 1-7 (ISO weekday)                                                 |
+| `period`           | TINYINT     | sequential slot number                                            |
+| `start_time`       | TIME        | optional                                                           |
+| `end_time`         | TIME        | optional                                                           |
+| `label`            | VARCHAR(80) | Display name shown to portals                                     |
+| `location`         | VARCHAR(80) | optional room or block                                            |
+| `notes`            | VARCHAR(255)| optional metadata                                                 |
+| `teacher_subject_id`| BIGINT FK  | -> `teacher_subjects.id`, nullable for advisory/break slots        |
+| Unique             | (`classroom_id`,`week_day`,`period`) to prevent overlapping slots               |
+| Indexes            | (`school_id`,`classroom_id`,`week_day`) for fast weekly lookups                 |
+
 ## Exams & Grades
 
 ### `exams`
@@ -184,18 +207,17 @@ Reusable sets of students (clubs, bus routes, remediation batches) for notificat
 ## Attendance
 
 ### `attendance_sessions`
-Represents a roll call window (daily homeroom or subject-specific).
+Represents a roll call window (daily homeroom session per classroom).
 
 | Column         | Type        | Notes                                                |
 |----------------|-------------|------------------------------------------------------|
 | `id`           | BIGINT PK   |                                                      |
 | `school_id`    | BIGINT FK   | -> `schools.id`                                      |
 | `classroom_id` | BIGINT FK   | -> `classrooms.id`                                   |
-| `subject_id`   | BIGINT FK   | nullable; null = general daily attendance           |
 | `session_date` | DATE        |                                                      |
 | `starts_at`    | TIME        | optional                                             |
 | `ends_at`      | TIME        | optional                                             |
-| Unique         | (`classroom_id`,`subject_id`,`session_date`,`starts_at`)           |
+| Unique         | (`classroom_id`,`session_date`)                                     |
 
 ### `student_attendance`
 | Column         | Type        | Notes                                       |

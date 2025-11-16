@@ -1,11 +1,13 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import jwt, { Secret, SignOptions } from "jsonwebtoken";
 import { UserStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { validateBody } from "../../middleware/validateResource";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { authenticate, authorizeRoles } from "../../middleware/auth";
 import { createUserSchema, loginSchema, updateUserStatusSchema } from "./auth.schemas";
+import { env } from "../../config/env";
 
 export const authRouter = Router();
 
@@ -35,12 +37,29 @@ authRouter.post(
     }
 
     const { passwordHash: _passwordHash, ...safeUser } = user;
-    res.json({
-      userId: safeUser.id,
+    const toStringId = (value?: bigint | null) => (value === undefined || value === null ? null : value.toString());
+    const userId = safeUser.id.toString();
+    const studentId = toStringId(safeUser.studentId);
+    const teacherId = toStringId(safeUser.teacherId);
+    const schoolId = toStringId(safeUser.schoolId);
+
+    const tokenPayload = {
+      sub: userId,
       role: safeUser.role,
-      studentId: safeUser.studentId,
-      teacherId: safeUser.teacherId,
-      schoolId: safeUser.schoolId
+      studentId,
+      teacherId,
+      schoolId
+    };
+    const token = jwt.sign(tokenPayload, env.jwtSecret as Secret, { expiresIn: env.jwtExpiresIn } as SignOptions);
+
+    res.json({
+      token,
+      expiresIn: env.jwtExpiresIn,
+      userId,
+      role: safeUser.role,
+      studentId,
+      teacherId,
+      schoolId
     });
   })
 );

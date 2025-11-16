@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import {
   createClassroomSchema,
   createGradeSchema,
@@ -12,6 +12,16 @@ import { validateBody } from "../../middleware/validateResource";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { prisma } from "../../lib/prisma";
 import { authorizeRoles } from "../../middleware/auth";
+
+const getScopedSchoolId = (req: Request) => {
+  if (req.user?.role === "TEACHER" && req.user.teacher) {
+    return req.user.teacher.schoolId;
+  }
+  if (req.user?.role === "PRINCIPAL" && req.user.schoolId) {
+    return req.user.schoolId;
+  }
+  return undefined;
+};
 
 export const coreRouter = Router();
 
@@ -27,11 +37,11 @@ coreRouter.post(
 
 coreRouter.get(
   "/schools",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
+    const scopedSchoolId = getScopedSchoolId(req);
     const schools = await prisma.school.findMany({
-      where: teacherSchoolId ? { id: teacherSchoolId } : undefined
+      where: scopedSchoolId ? { id: scopedSchoolId } : undefined
     });
     res.json(schools);
   })
@@ -49,10 +59,10 @@ coreRouter.post(
 
 coreRouter.get(
   "/grades",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
-    const schoolId = teacherSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
+    const scopedSchoolId = getScopedSchoolId(req);
+    const schoolId = scopedSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
     const grades = await prisma.grade.findMany({
       where: schoolId ? { schoolId } : undefined,
       include: { sections: true }
@@ -73,17 +83,17 @@ coreRouter.post(
 
 coreRouter.get(
   "/sections",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
     const gradeId = req.query.gradeId ? BigInt(String(req.query.gradeId)) : undefined;
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
+    const scopedSchoolId = getScopedSchoolId(req);
     const sections = await prisma.section.findMany({
       where: {
         ...(gradeId ? { gradeId } : {}),
-        ...(teacherSchoolId
+        ...(scopedSchoolId
           ? {
               grade: {
-                schoolId: teacherSchoolId
+                schoolId: scopedSchoolId
               }
             }
           : {})
@@ -105,10 +115,10 @@ coreRouter.post(
 
 coreRouter.get(
   "/classrooms",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
-    const schoolId = teacherSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
+    const scopedSchoolId = getScopedSchoolId(req);
+    const schoolId = scopedSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
     const classrooms = await prisma.classroom.findMany({
       where: schoolId ? { schoolId } : undefined,
       include: { grade: true, section: true }
@@ -129,10 +139,10 @@ coreRouter.post(
 
 coreRouter.get(
   "/teachers",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
-    const schoolId = teacherSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
+    const scopedSchoolId = getScopedSchoolId(req);
+    const schoolId = scopedSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
     const teachers = await prisma.teacher.findMany({
       where: schoolId ? { schoolId } : undefined
     });
@@ -152,10 +162,10 @@ coreRouter.post(
 
 coreRouter.get(
   "/subjects",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
-    const schoolId = teacherSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
+    const scopedSchoolId = getScopedSchoolId(req);
+    const schoolId = scopedSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
     const subjects = await prisma.subject.findMany({
       where: schoolId ? { schoolId } : undefined
     });
@@ -175,14 +185,15 @@ coreRouter.post(
 
 coreRouter.get(
   "/students",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
     const classroomId = req.query.classroomId ? BigInt(String(req.query.classroomId)) : undefined;
-    const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
+    const scopedSchoolId = getScopedSchoolId(req);
+    const teacherId = req.user?.role === "TEACHER" ? req.user.teacherId : undefined;
     const students = await prisma.student.findMany({
       where: {
         ...(classroomId ? { classroomId } : {}),
-        ...(teacherSchoolId ? { schoolId: teacherSchoolId } : {})
+        ...(teacherId ? { classTeacherId: teacherId } : scopedSchoolId ? { schoolId: scopedSchoolId } : {})
       }
     });
     res.json(students);
@@ -191,7 +202,7 @@ coreRouter.get(
 
 coreRouter.get(
   "/students/:id",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "STUDENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL", "STUDENT"),
   asyncHandler(async (req, res) => {
     const student = await prisma.student.findUnique({
       where: { id: BigInt(req.params.id) },
@@ -203,8 +214,18 @@ coreRouter.get(
     if (req.user?.role === "STUDENT" && req.user.studentId !== student.id) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== student.schoolId) {
-      return res.status(403).json({ message: "Forbidden" });
+    if (req.user?.role === "TEACHER") {
+      if (!req.user.teacher || req.user.teacher.schoolId !== student.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (req.user.teacherId !== student.classTeacherId) {
+        return res.status(403).json({ message: "Teachers can only view their homeroom students" });
+      }
+    }
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId || req.user.schoolId !== student.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     }
     res.json(student);
   })

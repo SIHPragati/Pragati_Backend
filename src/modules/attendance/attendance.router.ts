@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { validateBody } from "../../middleware/validateResource";
 import { asyncHandler } from "../../utils/asyncHandler";
@@ -6,21 +6,72 @@ import { createAttendanceSessionSchema, recordAttendanceSchema } from "./attenda
 import { authorizeRoles } from "../../middleware/auth";
 
 const toDate = (value?: string) => (value ? new Date(value) : undefined);
+const normalizeDateOnly = (value: Date) => {
+  const normalized = new Date(value);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+};
+const isClassTeacherForClassroom = async (teacherId: bigint, classroomId: bigint) => {
+  const homeroomStudent = await prisma.student.findFirst({
+    where: {
+      classroomId,
+      classTeacherId: teacherId
+    },
+    select: { id: true }
+  });
+  return Boolean(homeroomStudent);
+};
+
+const ensureTeacherOrDevice = (req: Request, res: Response) => {
+  if (req.user?.role === "TEACHER" && req.user.teacher) {
+    return "teacher" as const;
+  }
+  if (req.deviceAuth) {
+    return "device" as const;
+  }
+  res.status(403).json({ message: "Only teachers or authorized devices can mark attendance" });
+  return null;
+};
 
 export const attendanceRouter = Router();
 
 attendanceRouter.post(
   "/sessions",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
   validateBody(createAttendanceSessionSchema),
   asyncHandler(async (req, res) => {
-    const { startsAt, endsAt, ...rest } = req.body;
-    if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== rest.schoolId) {
-      return res.status(403).json({ message: "Forbidden" });
+    const actor = ensureTeacherOrDevice(req, res);
+    if (!actor) {
+      return;
     }
+    const { sessionDate, startsAt, endsAt, ...rest } = req.body;
+    if (actor === "teacher" && req.user?.teacher && req.user.teacherId) {
+      if (req.user.teacher.schoolId !== rest.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, rest.classroomId);
+      if (!ownsClassroom) {
+        return res.status(403).json({ message: "Teachers can only manage attendance for their homerooms" });
+      }
+    }
+
+    const normalizedDate = normalizeDateOnly(sessionDate);
+    const existingSession = await prisma.attendanceSession.findUnique({
+      where: {
+        classroomId_sessionDate: {
+          classroomId: rest.classroomId,
+          sessionDate: normalizedDate
+        }
+      }
+    });
+
+    if (existingSession) {
+      return res.status(409).json({ message: "Attendance already exists for this classroom on the selected date" });
+    }
+
     const session = await prisma.attendanceSession.create({
       data: {
         ...rest,
+        sessionDate: normalizedDate,
         startsAt: toDate(startsAt),
         endsAt: toDate(endsAt)
       }
@@ -31,21 +82,30 @@ attendanceRouter.post(
 
 attendanceRouter.post(
   "/sessions/:sessionId/records",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
   validateBody(recordAttendanceSchema),
   asyncHandler(async (req, res) => {
+    const actor = ensureTeacherOrDevice(req, res);
+    if (!actor) {
+      return;
+    }
     const attendanceSessionId = BigInt(req.params.sessionId);
     const session = await prisma.attendanceSession.findUnique({
       where: { id: attendanceSessionId },
-      select: { schoolId: true }
+      select: { schoolId: true, classroomId: true }
     });
 
     if (!session) {
       return res.status(404).json({ message: "Session not found" });
     }
 
-    if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== session.schoolId) {
-      return res.status(403).json({ message: "Forbidden" });
+    if (actor === "teacher" && req.user?.teacher && req.user.teacherId) {
+      if (req.user.teacher.schoolId !== session.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, session.classroomId);
+      if (!ownsClassroom) {
+        return res.status(403).json({ message: "Teachers can only manage attendance for their homerooms" });
+      }
     }
     const payload = recordAttendanceSchema.parse(req.body);
 
@@ -75,50 +135,8 @@ attendanceRouter.post(
 );
 
 attendanceRouter.get(
-  "/students/:studentId",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "STUDENT"),
-  asyncHandler(async (req, res) => {
-    const studentId = BigInt(req.params.studentId);
-    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
-    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
-
-    if (req.user?.role === "STUDENT" && req.user.studentId !== studentId) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-
-    if (req.user?.role === "TEACHER" && req.user.teacher) {
-      const student = await prisma.student.findUnique({ where: { id: studentId } });
-      if (!student) {
-        return res.status(404).json({ message: "Student not found" });
-      }
-      if (req.user.teacher.schoolId !== student.schoolId) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-    }
-
-    const attendances = await prisma.studentAttendance.findMany({
-      where: {
-        studentId,
-        attendanceSession: {
-          sessionDate: {
-            gte: from,
-            lte: to
-          }
-        }
-      },
-      include: {
-        attendanceSession: true
-      },
-      orderBy: [{ attendanceSession: { sessionDate: "desc" } }]
-    });
-
-    res.json(attendances);
-  })
-);
-
-attendanceRouter.get(
   "/students/summary",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "STUDENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL", "STUDENT"),
   asyncHandler(async (req, res) => {
     const studentIdParam = req.query.studentId as string | undefined;
     const phone = req.query.phone as string | undefined;
@@ -143,6 +161,10 @@ attendanceRouter.get(
     }
 
     if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== student.schoolId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (req.user?.role === "PRINCIPAL" && req.user.schoolId !== student.schoolId) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
@@ -197,22 +219,86 @@ attendanceRouter.get(
 );
 
 attendanceRouter.get(
+  "/students/:studentId",
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL", "STUDENT"),
+  asyncHandler(async (req, res) => {
+    const studentId = BigInt(req.params.studentId);
+    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+
+    if (req.user?.role === "STUDENT" && req.user.studentId !== studentId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (req.user?.role === "TEACHER" && req.user.teacher) {
+      const student = await prisma.student.findUnique({ where: { id: studentId } });
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+      if (req.user.teacher.schoolId !== student.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
+
+    if (req.user?.role === "PRINCIPAL" && req.user.schoolId) {
+      const student = await prisma.student.findUnique({ where: { id: studentId }, select: { schoolId: true } });
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+      if (student.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
+
+    const attendances = await prisma.studentAttendance.findMany({
+      where: {
+        studentId,
+        attendanceSession: {
+          sessionDate: {
+            gte: from,
+            lte: to
+          }
+        }
+      },
+      include: {
+        attendanceSession: true
+      },
+      orderBy: [{ attendanceSession: { sessionDate: "desc" } }]
+    });
+
+    res.json(attendances);
+  })
+);
+
+attendanceRouter.get(
   "/classrooms/:classroomId/summary",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
     const classroomId = BigInt(req.params.classroomId);
     const date = req.query.date ? new Date(String(req.query.date)) : undefined;
-    const subjectId = req.query.subjectId ? BigInt(String(req.query.subjectId)) : undefined;
+
+    const classroom = await prisma.classroom.findUnique({
+      where: { id: classroomId },
+      select: { schoolId: true }
+    });
+    if (!classroom) {
+      return res.status(404).json({ message: "Classroom not found" });
+    }
 
     if (req.user?.role === "TEACHER" && req.user.teacher) {
-      const classroom = await prisma.classroom.findUnique({
-        where: { id: classroomId },
-        select: { schoolId: true }
-      });
-      if (!classroom) {
-        return res.status(404).json({ message: "Classroom not found" });
-      }
       if (classroom.schoolId !== req.user.teacher.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (req.user.teacherId) {
+        const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, classroomId);
+        if (!ownsClassroom) {
+          return res.status(403).json({ message: "Teachers can only view attendance for their homerooms" });
+        }
+      }
+    }
+
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId || req.user.schoolId !== classroom.schoolId) {
         return res.status(403).json({ message: "Forbidden" });
       }
     }
@@ -220,8 +306,7 @@ attendanceRouter.get(
     const sessions = await prisma.attendanceSession.findMany({
       where: {
         classroomId,
-        ...(date ? { sessionDate: date } : {}),
-        ...(subjectId ? { subjectId } : {})
+        ...(date ? { sessionDate: normalizeDateOnly(date) } : {})
       },
       include: {
         studentAttendance: {

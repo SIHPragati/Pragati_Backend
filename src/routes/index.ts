@@ -6,6 +6,7 @@ import { attendanceRouter } from "../modules/attendance/attendance.router";
 import { assessmentRouter } from "../modules/assessments/assessment.router";
 import { notificationRouter } from "../modules/notifications/notification.router";
 import { authRouter } from "../modules/auth/auth.router";
+import { timetableRouter } from "../modules/timetables/timetable.router";
 import { authenticate } from "../middleware/auth";
 
 export const apiRouter = Router();
@@ -18,3 +19,4 @@ apiRouter.use("/enrollment", enrollmentRouter);
 apiRouter.use("/attendance", attendanceRouter);
 apiRouter.use("/assessments", assessmentRouter);
 apiRouter.use("/communications", notificationRouter);
+apiRouter.use("/timetables", timetableRouter);

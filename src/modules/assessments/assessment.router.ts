@@ -67,18 +67,24 @@ assessmentRouter.post(
 
 assessmentRouter.get(
   "/students/:studentId/latest",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "STUDENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL", "STUDENT"),
   asyncHandler(async (req, res) => {
     const studentId = BigInt(req.params.studentId);
     if (req.user?.role === "STUDENT" && req.user.studentId !== studentId) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    if (req.user?.role === "TEACHER" && req.user.teacher) {
+    if (
+      (req.user?.role === "TEACHER" && req.user.teacher) ||
+      (req.user?.role === "PRINCIPAL" && req.user.schoolId)
+    ) {
       const student = await prisma.student.findUnique({ where: { id: studentId }, select: { schoolId: true } });
       if (!student) {
         return res.status(404).json({ message: "Student not found" });
       }
-      if (student.schoolId !== req.user.teacher.schoolId) {
+      if (req.user.role === "TEACHER" && req.user.teacher?.schoolId !== student.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (req.user.role === "PRINCIPAL" && req.user.schoolId !== student.schoolId) {
         return res.status(403).json({ message: "Forbidden" });
       }
     }

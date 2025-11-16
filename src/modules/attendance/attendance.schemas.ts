@@ -3,7 +3,6 @@ import { z } from "zod";
 export const createAttendanceSessionSchema = z.object({
   schoolId: z.coerce.bigint(),
   classroomId: z.coerce.bigint(),
-  subjectId: z.coerce.bigint().optional(),
   sessionDate: z.coerce.date(),
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional()

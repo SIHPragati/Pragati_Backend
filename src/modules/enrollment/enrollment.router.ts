@@ -14,11 +14,20 @@ export const enrollmentRouter = Router();
 
 enrollmentRouter.post(
   "/teacher-subjects",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   validateBody(createTeacherSubjectSchema),
   asyncHandler(async (req, res) => {
     if (req.user?.role === "TEACHER" && req.user.teacherId !== req.body.teacherId) {
       return res.status(403).json({ message: "Teachers can only manage their own subjects" });
+    }
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      const teacher = await prisma.teacher.findUnique({ where: { id: req.body.teacherId }, select: { schoolId: true } });
+      if (!teacher || teacher.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     }
     const record = await prisma.teacherSubject.create({ data: req.body });
     res.status(201).json(record);
@@ -27,7 +36,7 @@ enrollmentRouter.post(
 
 enrollmentRouter.post(
   "/student-subjects",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   validateBody(createStudentSubjectSchema),
   asyncHandler(async (req, res) => {
     if (req.user?.role === "TEACHER") {
@@ -39,6 +48,15 @@ enrollmentRouter.post(
         return res.status(403).json({ message: "Forbidden" });
       }
     }
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      const student = await prisma.student.findUnique({ where: { id: req.body.studentId }, select: { schoolId: true } });
+      if (!student || student.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
     const record = await prisma.studentSubject.create({ data: req.body });
     res.status(201).json(record);
   })
@@ -46,10 +64,13 @@ enrollmentRouter.post(
 
 enrollmentRouter.post(
   "/student-groups",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   validateBody(createStudentGroupSchema),
   asyncHandler(async (req, res) => {
     if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== req.body.schoolId) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    if (req.user?.role === "PRINCIPAL" && req.user.schoolId !== req.body.schoolId) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const group = await prisma.studentGroup.create({ data: req.body });
@@ -59,7 +80,7 @@ enrollmentRouter.post(
 
 enrollmentRouter.post(
   "/student-groups/:groupId/members",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   validateBody(addGroupMembersSchema),
   asyncHandler(async (req, res) => {
     const groupId = BigInt(req.params.groupId);
@@ -69,6 +90,15 @@ enrollmentRouter.post(
         return res.status(404).json({ message: "Group not found" });
       }
       if (group.schoolId !== req.user.teacher.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
+    if (req.user?.role === "PRINCIPAL") {
+      const group = await prisma.studentGroup.findUnique({ where: { id: groupId }, select: { schoolId: true } });
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+      if (!req.user.schoolId || group.schoolId !== req.user.schoolId) {
         return res.status(403).json({ message: "Forbidden" });
       }
     }
@@ -99,10 +129,11 @@ enrollmentRouter.post(
 
 enrollmentRouter.get(
   "/student-groups",
-  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
     const teacherSchoolId = req.user?.role === "TEACHER" && req.user.teacher ? req.user.teacher.schoolId : undefined;
-    const schoolId = teacherSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
+    const principalSchoolId = req.user?.role === "PRINCIPAL" ? req.user.schoolId : undefined;
+    const schoolId = teacherSchoolId ?? principalSchoolId ?? (req.query.schoolId ? BigInt(String(req.query.schoolId)) : undefined);
     const groups = await prisma.studentGroup.findMany({
       where: schoolId ? { schoolId } : undefined,
       include: { members: true }

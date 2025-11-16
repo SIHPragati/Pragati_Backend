@@ -48,6 +48,7 @@ enum UserRole {
   STUDENT
   TEACHER
   GOVERNMENT
+  PRINCIPAL
   ADMIN
 }
 
@@ -71,6 +72,7 @@ model School {
   attendanceSessions AttendanceSession[]
   studentGroups StudentGroup[]
   users     User[]
+  classroomTimetables ClassroomTimetable[]
 }
 
 model Grade {
@@ -109,6 +111,7 @@ model Classroom {
   teacherSubjects TeacherSubject[]
   exams         Exam[]
   attendanceSessions AttendanceSession[]
+  timetables    ClassroomTimetable[]
 
   @@unique([gradeId, sectionId, academicYear])
   @@index([schoolId])
@@ -120,6 +123,7 @@ model Student {
   classroomId   BigInt
   code          String @db.VarChar(30)
   phoneNumber   String? @db.VarChar(15)
+  classTeacherId BigInt?
   firstName     String @db.VarChar(60)
   lastName      String @db.VarChar(60)
   gradeLevel    Int
@@ -133,6 +137,7 @@ model Student {
   examResults   StudentExamResult[]
   groupMemberships StudentGroupMember[]
   user          User? @relation("StudentAccount")
+  classTeacher  Teacher? @relation("ClassTeacherStudents", fields: [classTeacherId], references: [id])
 
   @@unique([schoolId, code])
   @@unique([phoneNumber])
@@ -151,6 +156,7 @@ model Teacher {
   exams     Exam[]
   notifications Notification[] @relation("TeacherNotifications")
   users     User[] @relation("TeacherAccounts")
+  homeroomStudents Student[] @relation("ClassTeacherStudents")
 
   @@index([schoolId])
 }
@@ -163,7 +169,6 @@ model Subject {
   school    School @relation(fields: [schoolId], references: [id])
   teacherSubjects TeacherSubject[]
   exams     Exam[]
-  attendanceSessions AttendanceSession[]
 
   @@unique([schoolId, code])
 }
@@ -179,6 +184,7 @@ model TeacherSubject {
   subject     Subject @relation(fields: [subjectId], references: [id])
   classroom   Classroom? @relation(fields: [classroomId], references: [id])
   studentSubjects StudentSubject[]
+  timetables  ClassroomTimetable[]
 
   @@unique([teacherId, subjectId, classroomId, startDate])
 }
@@ -229,16 +235,14 @@ model AttendanceSession {
   id           BigInt @id @default(autoincrement())
   schoolId     BigInt
   classroomId  BigInt
-  subjectId    BigInt?
   sessionDate  DateTime @db.Date
   startsAt     DateTime? @db.Time(0)
   endsAt       DateTime? @db.Time(0)
   school       School @relation(fields: [schoolId], references: [id])
   classroom    Classroom @relation(fields: [classroomId], references: [id])
-  subject      Subject? @relation(fields: [subjectId], references: [id])
   studentAttendance StudentAttendance[]
 
-  @@unique([classroomId, subjectId, sessionDate, startsAt])
+  @@unique([classroomId, sessionDate])
   @@index([schoolId])
 }
 
@@ -318,6 +322,26 @@ model NotificationRead {
   notification    Notification @relation(fields: [notificationId], references: [id])
 
   @@index([notificationId])
+}
+
+model ClassroomTimetable {
+  id               BigInt @id @default(autoincrement())
+  schoolId         BigInt
+  classroomId      BigInt
+  weekDay          Int
+  period           Int
+  startTime        DateTime? @db.Time(0)
+  endTime          DateTime? @db.Time(0)
+  label            String   @db.VarChar(80)
+  location         String?  @db.VarChar(80)
+  notes            String?  @db.VarChar(255)
+  teacherSubjectId BigInt?
+  school           School   @relation(fields: [schoolId], references: [id])
+  classroom        Classroom @relation(fields: [classroomId], references: [id])
+  teacherSubject   TeacherSubject? @relation(fields: [teacherSubjectId], references: [id])
+
+  @@unique([classroomId, weekDay, period])
+  @@index([schoolId, classroomId, weekDay])
 }
 
 model User {
