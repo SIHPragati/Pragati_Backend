@@ -4,6 +4,7 @@ import { validateBody } from "../../middleware/validateResource";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { createAttendanceSessionSchema, recordAttendanceSchema } from "./attendance.schemas";
 import { authorizeRoles } from "../../middleware/auth";
+import { isHomeroomTeacherForClassroom, resolveTeacherClassroomAssociation } from "../../utils/classroomAccess";
 
 const toDate = (value?: string) => (value ? new Date(value) : undefined);
 const normalizeDateOnly = (value: Date) => {
@@ -11,15 +12,35 @@ const normalizeDateOnly = (value: Date) => {
   normalized.setHours(0, 0, 0, 0);
   return normalized;
 };
-const isClassTeacherForClassroom = async (teacherId: bigint, classroomId: bigint) => {
-  const homeroomStudent = await prisma.student.findFirst({
-    where: {
-      classroomId,
-      classTeacherId: teacherId
-    },
-    select: { id: true }
-  });
-  return Boolean(homeroomStudent);
+
+const EDIT_WINDOW_HOURS = 24;
+const computeEditDeadline = (sessionDate: Date) => {
+  const baseline = new Date(sessionDate);
+  baseline.setHours(0, 0, 0, 0);
+  baseline.setHours(baseline.getHours() + EDIT_WINDOW_HOURS);
+  return baseline;
+};
+const isWithinEditWindow = (sessionDate: Date) => new Date() <= computeEditDeadline(sessionDate);
+
+const ensureTeacherCanViewClassroom = async (
+  req: Request,
+  res: Response,
+  classroomId: bigint,
+  classroomSchoolId: bigint
+) => {
+  if (req.user?.role !== "TEACHER" || !req.user.teacher || !req.user.teacherId) {
+    return undefined;
+  }
+  if (req.user.teacher.schoolId !== classroomSchoolId) {
+    res.status(403).json({ message: "Forbidden" });
+    return null;
+  }
+  const association = await resolveTeacherClassroomAssociation(req.user.teacherId, classroomId);
+  if (!association.homeroom && !association.subject) {
+    res.status(403).json({ message: "Teachers can only view classrooms they are assigned to" });
+    return null;
+  }
+  return association;
 };
 
 const ensureTeacherOrDevice = (req: Request, res: Response) => {
@@ -48,7 +69,7 @@ attendanceRouter.post(
       if (req.user.teacher.schoolId !== rest.schoolId) {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, rest.classroomId);
+      const ownsClassroom = await isHomeroomTeacherForClassroom(req.user.teacherId, rest.classroomId);
       if (!ownsClassroom) {
         return res.status(403).json({ message: "Teachers can only manage attendance for their homerooms" });
       }
@@ -91,7 +112,7 @@ attendanceRouter.post(
     const attendanceSessionId = BigInt(req.params.sessionId);
     const session = await prisma.attendanceSession.findUnique({
       where: { id: attendanceSessionId },
-      select: { schoolId: true, classroomId: true }
+      select: { schoolId: true, classroomId: true, sessionDate: true }
     });
 
     if (!session) {
@@ -102,9 +123,14 @@ attendanceRouter.post(
       if (req.user.teacher.schoolId !== session.schoolId) {
         return res.status(403).json({ message: "Forbidden" });
       }
-      const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, session.classroomId);
+      const ownsClassroom = await isHomeroomTeacherForClassroom(req.user.teacherId, session.classroomId);
       if (!ownsClassroom) {
         return res.status(403).json({ message: "Teachers can only manage attendance for their homerooms" });
+      }
+      if (!isWithinEditWindow(session.sessionDate)) {
+        return res
+          .status(403)
+          .json({ message: "Attendance can only be edited within 24 hours of the session date" });
       }
     }
     const payload = recordAttendanceSchema.parse(req.body);
@@ -271,6 +297,61 @@ attendanceRouter.get(
 );
 
 attendanceRouter.get(
+  "/classrooms/:classroomId/sessions",
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
+  asyncHandler(async (req, res) => {
+    const classroomId = BigInt(req.params.classroomId);
+
+    const classroom = await prisma.classroom.findUnique({
+      where: { id: classroomId },
+      select: { schoolId: true }
+    });
+    if (!classroom) {
+      return res.status(404).json({ message: "Classroom not found" });
+    }
+
+    const teacherAssociation = await ensureTeacherCanViewClassroom(req, res, classroomId, classroom.schoolId);
+    if (teacherAssociation === null) {
+      return;
+    }
+
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId || req.user.schoolId !== classroom.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
+
+    const sessions = await prisma.attendanceSession.findMany({
+      where: { classroomId },
+      select: {
+        id: true,
+        sessionDate: true,
+        startsAt: true,
+        endsAt: true,
+        _count: { select: { studentAttendance: true } }
+      },
+      orderBy: { sessionDate: "desc" }
+    });
+
+    const canTeacherEdit = Boolean(teacherAssociation?.homeroom);
+    const payload = sessions.map((session) => {
+      const editableUntil = computeEditDeadline(session.sessionDate);
+      return {
+        id: session.id,
+        sessionDate: session.sessionDate,
+        startsAt: session.startsAt,
+        endsAt: session.endsAt,
+        totalRecords: session._count.studentAttendance,
+        editableUntil,
+        canEdit: canTeacherEdit && new Date() <= editableUntil
+      };
+    });
+
+    res.json({ classroomId, sessions: payload });
+  })
+);
+
+attendanceRouter.get(
   "/classrooms/:classroomId/summary",
   authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
   asyncHandler(async (req, res) => {
@@ -285,16 +366,9 @@ attendanceRouter.get(
       return res.status(404).json({ message: "Classroom not found" });
     }
 
-    if (req.user?.role === "TEACHER" && req.user.teacher) {
-      if (classroom.schoolId !== req.user.teacher.schoolId) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      if (req.user.teacherId) {
-        const ownsClassroom = await isClassTeacherForClassroom(req.user.teacherId, classroomId);
-        if (!ownsClassroom) {
-          return res.status(403).json({ message: "Teachers can only view attendance for their homerooms" });
-        }
-      }
+    const teacherAssociation = await ensureTeacherCanViewClassroom(req, res, classroomId, classroom.schoolId);
+    if (teacherAssociation === null) {
+      return;
     }
 
     if (req.user?.role === "PRINCIPAL") {
@@ -327,6 +401,77 @@ attendanceRouter.get(
       { total: 0, totals: { present: 0, absent: 0, late: 0, excused: 0 } as Record<string, number> }
     );
 
-    res.json({ sessions, summary });
+    const canTeacherEdit = Boolean(teacherAssociation?.homeroom);
+    const enrichedSessions = sessions.map((session) => {
+      const editableUntil = computeEditDeadline(session.sessionDate);
+      return {
+        ...session,
+        editableUntil,
+        canEdit: canTeacherEdit && new Date() <= editableUntil
+      };
+    });
+
+    res.json({ sessions: enrichedSessions, summary });
+  })
+);
+
+attendanceRouter.get(
+  "/sessions/:sessionId",
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
+  asyncHandler(async (req, res) => {
+    const sessionId = BigInt(req.params.sessionId);
+
+    const session = await prisma.attendanceSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        classroom: {
+          select: {
+            id: true,
+            schoolId: true,
+            grade: { select: { id: true, name: true, level: true } },
+            section: { select: { id: true, label: true } }
+          }
+        },
+        studentAttendance: {
+          include: { student: { select: { id: true, firstName: true, lastName: true, code: true } } },
+          orderBy: { studentId: "asc" }
+        }
+      }
+    });
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    const teacherAssociation = await ensureTeacherCanViewClassroom(
+      req,
+      res,
+      session.classroomId,
+      session.classroom.schoolId
+    );
+    if (teacherAssociation === null) {
+      return;
+    }
+
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId || req.user.schoolId !== session.classroom.schoolId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+    }
+
+    const editableUntil = computeEditDeadline(session.sessionDate);
+    const canTeacherEdit = Boolean(teacherAssociation?.homeroom) && new Date() <= editableUntil;
+
+    res.json({
+      id: session.id,
+      classroomId: session.classroomId,
+      sessionDate: session.sessionDate,
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      classroom: session.classroom,
+      studentAttendance: session.studentAttendance,
+      editableUntil,
+      canEdit: canTeacherEdit
+    });
   })
 );

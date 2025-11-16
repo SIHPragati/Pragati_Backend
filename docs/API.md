@@ -135,9 +135,6 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 - **Response 200**
 ```json
 [
-	{ "id": "1", "name": "Central High", "district": "Pune", "isActive": true }
-]
-```
 
 ### POST `/api/core/grades`
 - **Roles**: `ADMIN`, `GOVERNMENT`
@@ -159,9 +156,6 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 [
 	{ "id": "10", "schoolId": "1", "name": "Grade 8", "level": 8 }
 ]
-```
-
-### POST `/api/core/sections`
 - **Roles**: `ADMIN`, `GOVERNMENT`
 - **Description**: Create a section (division) within a grade.
 - **Request**
@@ -411,6 +405,7 @@ Homeroom teachers (matching `classTeacherId`) or devices with `x-device-key` can
 ```json
 { "message": "Attendance synced", "updated": 2 }
 ```
+- **Notes**: Teachers can only modify records within 24 hours of the `sessionDate`; after the window closes the API responds with `403`.
 
 ### GET `/api/attendance/students/:studentId`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`, `STUDENT`
@@ -447,7 +442,7 @@ Homeroom teachers (matching `classTeacherId`) or devices with `x-device-key` can
 
 ### GET `/api/attendance/classrooms/:classroomId/summary`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
-- **Description**: Daily classroom roll-up plus per-student statuses.
+- **Description**: Daily classroom roll-up plus per-student statuses. Teachers can view classrooms they homeroom or teach via subject assignments; only homeroom teachers receive `canEdit=true` during the 24-hour edit window.
 - **Query**: optional `date=YYYY-MM-DD` (normalized to midnight).
 - **Response 200**
 ```json
@@ -456,6 +451,8 @@ Homeroom teachers (matching `classTeacherId`) or devices with `x-device-key` can
 		{
 			"id": "90",
 			"sessionDate": "2025-06-10",
+			"editableUntil": "2025-06-11T00:00:00.000Z",
+			"canEdit": true,
 			"studentAttendance": [
 				{
 					"studentId": "45",
@@ -466,6 +463,55 @@ Homeroom teachers (matching `classTeacherId`) or devices with `x-device-key` can
 		}
 	],
 	"summary": { "total": 30, "totals": { "present": 25, "absent": 3, "late": 1, "excused": 1 } }
+}
+```
+
+### GET `/api/attendance/classrooms/:classroomId/sessions`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
+- **Description**: Lightweight list of all attendance sessions for the classroom with edit-state metadata for UI calendars.
+- **Response 200**
+```json
+{
+	"classroomId": "25",
+	"sessions": [
+		{
+			"id": "90",
+			"sessionDate": "2025-06-10",
+			"startsAt": "2025-06-10T09:00:00.000Z",
+			"endsAt": "2025-06-10T10:00:00.000Z",
+			"totalRecords": 30,
+			"editableUntil": "2025-06-11T00:00:00.000Z",
+			"canEdit": true
+		}
+	]
+}
+```
+
+### GET `/api/attendance/sessions/:sessionId`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
+- **Description**: Retrieve a single attendance register (students + statuses) for a given session date. Response echoes `canEdit` so the UI can toggle edit mode based on the 24-hour rule.
+- **Response 200**
+```json
+{
+	"id": "90",
+	"classroomId": "25",
+	"sessionDate": "2025-06-10",
+	"startsAt": "2025-06-10T09:00:00.000Z",
+	"endsAt": "2025-06-10T10:00:00.000Z",
+	"classroom": {
+		"id": "25",
+		"grade": { "id": "10", "name": "Grade 8", "level": 8 },
+		"section": { "id": "4", "label": "A" }
+	},
+	"studentAttendance": [
+		{
+			"studentId": "45",
+			"status": "present",
+			"student": { "id": "45", "firstName": "Sanjay", "lastName": "Student", "code": "STU-0001" }
+		}
+	],
+	"editableUntil": "2025-06-11T00:00:00.000Z",
+	"canEdit": false
 }
 ```
 
