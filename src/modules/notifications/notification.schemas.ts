@@ -12,6 +12,7 @@ export const createNotificationSchema = z
     activeTill: z.coerce.date(),
     priority: z.number().int().min(1).max(5).default(3),
     createdBy: z.coerce.bigint(),
+    isPublic: z.boolean().optional().default(false),
     targets: z.object({
       studentIds: targetArray,
       studentGroupIds: targetArray,
@@ -21,10 +22,11 @@ export const createNotificationSchema = z
   })
   .refine((data) => {
     const { studentIds, studentGroupIds, teacherIds, classroomIds } = data.targets;
-    return Boolean(
+    const hasTargets = Boolean(
       (studentIds && studentIds.length) ||
         (studentGroupIds && studentGroupIds.length) ||
         (teacherIds && teacherIds.length) ||
         (classroomIds && classroomIds.length)
     );
-  }, "At least one target must be provided");
+    return data.isPublic || hasTargets;
+  }, "Provide at least one target unless the notice is public");

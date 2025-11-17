@@ -6,6 +6,7 @@ import { seedMockData } from "./seedMockData";
 const adminCredentials = { email: "admin@mock.test", password: "AdminPass123!" };
 const teacherCredentials = { email: "teacher@mock.test", password: "TeacherPass123!" };
 const principalCredentials = { email: "principal@mock.test", password: "PrincipalPass123!" };
+const attendanceDeviceKey = process.env.ATTENDANCE_DEVICE_KEY ?? "smoke-device-key";
 
 const authHeader = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -149,9 +150,10 @@ async function runFullSmokeTest() {
 
   const sessionDate = new Date();
   sessionDate.setDate(sessionDate.getDate() + 1);
-  sessionDate.setUTCHours(0, 0, 0, 0);
+  sessionDate.setUTCHours(12, 0, 0, 0);
   const sessionDateIso = sessionDate.toISOString();
   const sessionDateParam = sessionDateIso.split("T")[0];
+  console.log("[SMOKE] Using session date", sessionDateIso);
 
   console.log("[SMOKE] Creating attendance session...");
   const sessionRes = await request(app)
@@ -167,10 +169,15 @@ async function runFullSmokeTest() {
   expectStatus(sessionRes, 201, "create attendance session");
   const sessionId = String(sessionRes.body.id);
 
+  const sessionDetailRes = await request(app)
+    .get(`/api/attendance/sessions/${sessionId}`)
+    .set(authHeader(teacher.token));
+  expectStatus(sessionDetailRes, 200, "get attendance session detail");
+
   console.log("[SMOKE] Recording attendance...");
   const attendanceRes = await request(app)
     .post(`/api/attendance/sessions/${sessionId}/records`)
-    .set(authHeader(teacher.token))
+    .set("x-device-key", attendanceDeviceKey)
     .send({
       entries: [{ studentId, status: "present" }]
     });
@@ -246,10 +253,41 @@ async function runFullSmokeTest() {
     });
   expectStatus(notificationRes, 201, "create notification");
 
+  console.log("[SMOKE] Creating public notice...");
+  const publicNoticeRes = await request(app)
+    .post("/api/communications/notifications")
+    .set(authHeader(admin.token))
+    .send({
+      schoolId,
+      title: `Public Notice ${uniqueSuffix}`,
+      body: "Homepage announcement",
+      category: "general",
+      activeFrom: new Date().toISOString(),
+      activeTill: new Date(Date.now() + 24 * 3600000).toISOString(),
+      priority: 2,
+      isPublic: true,
+      createdBy: teacherId,
+      targets: {
+        studentIds: [],
+        studentGroupIds: [],
+        teacherIds: [],
+        classroomIds: []
+      }
+    });
+  expectStatus(publicNoticeRes, 201, "create public notice");
+
   const activeNotificationsRes = await request(app)
     .get("/api/communications/notifications/active")
     .set(authHeader(admin.token));
   expectStatus(activeNotificationsRes, 200, "list active notifications");
+
+  const publicNoticesRes = await request(app)
+    .get("/api/communications/notifications/public")
+    .query({ schoolId });
+  expectStatus(publicNoticesRes, 200, "list public notifications");
+  if (!publicNoticesRes.body?.items?.length) {
+    throw new Error("Public notifications endpoint returned no items");
+  }
 
   console.log("[SMOKE] Upserting classroom timetable as principal...");
   const timetableUpsertRes = await request(app)

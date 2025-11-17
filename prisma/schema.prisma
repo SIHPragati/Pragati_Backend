@@ -311,6 +311,7 @@ model Notification {
   activeFrom  DateTime @default(now())
   activeTill  DateTime
   priority    Int     @default(3)
+  isPublic    Boolean @default(false)
   createdBy   BigInt
   school      School  @relation(fields: [schoolId], references: [id])
   creator     Teacher? @relation("TeacherNotifications", fields: [createdBy], references: [id])
@@ -318,6 +319,7 @@ model Notification {
   reads       NotificationRead[]
 
   @@index([schoolId, activeFrom, activeTill])
+  @@index([isPublic, activeTill])
   @@index([activeTill])
 }
 

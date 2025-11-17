@@ -779,6 +779,7 @@ Supported categories (enum `ComplaintCategory`): `lack_of_proper_drinking_water`
 	"activeFrom": "2025-06-12T04:00:00.000Z",
 	"activeTill": "2025-06-15T23:59:59.000Z",
 	"priority": 3,
+	"isPublic": false,
 	"createdBy": "7",
 	"targets": {
 		"studentIds": ["45"],
@@ -802,7 +803,7 @@ Supported categories (enum `ComplaintCategory`): `lack_of_proper_drinking_water`
 	"targets": 3
 }
 ```
-- **Notes**: At least one target bucket must contain IDs. Teachers/principals must belong to the same school they target.
+- **Notes**: At least one target bucket must contain IDs unless `isPublic=true`, which publishes the message to the public feed. Teachers/principals must belong to the same school they target.
 
 ### GET `/api/communications/notifications/active`
 - **Roles**: Any authenticated role
@@ -820,6 +821,29 @@ Supported categories (enum `ComplaintCategory`): `lack_of_proper_drinking_water`
 		"targets": [ { "type": "student", "studentId": "45" } ]
 	}
 ]
+```
+
+### GET `/api/communications/notifications/public`
+- **Roles**: Public
+- **Description**: Fetch active campus-wide notices flagged as public (a digital notice board). Optional `schoolId` query scopes to one campus; otherwise returns every public notice.
+- **Response 200**
+```json
+{
+	"total": 2,
+	"items": [
+		{
+			"id": "90",
+			"schoolId": "1",
+			"title": "Science Fair",
+			"body": "Visitors welcome on Friday 4 PM.",
+			"category": "general",
+			"priority": 2,
+			"isPublic": true,
+			"activeFrom": "2025-11-18T02:00:00.000Z",
+			"activeTill": "2025-11-21T23:59:59.000Z"
+		}
+	]
+}
 ```
 
 ## Timetables (`/api/timetables`)

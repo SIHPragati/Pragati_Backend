@@ -9,6 +9,7 @@ import { authorizeRoles } from "../../middleware/auth";
 type TargetType = "student" | "student_group" | "teacher" | "classroom";
 
 export const notificationRouter = Router();
+export const publicNotificationRouter = Router();
 
 notificationRouter.post(
   "/notifications",
@@ -83,5 +84,43 @@ notificationRouter.get(
       orderBy: { activeTill: "asc" }
     });
     res.json(notifications);
+  })
+);
+
+publicNotificationRouter.get(
+  "/notifications/public",
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const where: Prisma.NotificationWhereInput = {
+      isPublic: true,
+      activeFrom: { lte: now },
+      activeTill: { gte: now }
+    };
+
+    if (req.query.schoolId) {
+      try {
+        where.schoolId = BigInt(req.query.schoolId as string);
+      } catch {
+        return res.status(400).json({ message: "Invalid schoolId" });
+      }
+    }
+
+    const notices = await prisma.notification.findMany({
+      where,
+      select: {
+        id: true,
+        schoolId: true,
+        title: true,
+        body: true,
+        category: true,
+        activeFrom: true,
+        activeTill: true,
+        priority: true,
+        isPublic: true
+      },
+      orderBy: { activeTill: "asc" }
+    });
+
+    res.json({ total: notices.length, items: notices });
   })
 );
