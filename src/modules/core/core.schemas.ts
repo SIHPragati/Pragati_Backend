@@ -47,7 +47,6 @@ export const createStudentSchema = z.object({
   classTeacherId: z.coerce.bigint().optional(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  gradeLevel: z.number().int().min(1),
-  sectionLabel: z.string().min(1),
-  enrolledAt: z.coerce.date()
+  gender: z.enum(["M", "F", "O"]).optional(),
+  dateOfBirth: z.coerce.date().optional()
 });

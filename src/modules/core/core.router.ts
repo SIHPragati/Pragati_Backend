@@ -105,9 +105,17 @@ coreRouter.get(
 
 coreRouter.post(
   "/classrooms",
-  authorizeRoles("ADMIN", "GOVERNMENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "PRINCIPAL"),
   validateBody(createClassroomSchema),
   asyncHandler(async (req, res) => {
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      if (req.body.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Principals can only create classrooms in their own school" });
+      }
+    }
     const classroom = await prisma.classroom.create({ data: req.body });
     res.status(201).json(classroom);
   })
@@ -129,9 +137,17 @@ coreRouter.get(
 
 coreRouter.post(
   "/teachers",
-  authorizeRoles("ADMIN", "GOVERNMENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "PRINCIPAL"),
   validateBody(createTeacherSchema),
   asyncHandler(async (req, res) => {
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      if (req.body.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Principals can only create teachers in their own school" });
+      }
+    }
     const teacher = await prisma.teacher.create({ data: req.body });
     res.status(201).json(teacher);
   })
@@ -175,10 +191,43 @@ coreRouter.get(
 
 coreRouter.post(
   "/students",
-  authorizeRoles("ADMIN", "GOVERNMENT"),
+  authorizeRoles("ADMIN", "GOVERNMENT", "PRINCIPAL"),
   validateBody(createStudentSchema),
   asyncHandler(async (req, res) => {
-    const student = await prisma.student.create({ data: req.body });
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      if (req.body.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Principals can only create students in their own school" });
+      }
+    }
+    
+    // Fetch classroom to get gradeLevel and sectionLabel
+    const classroom = await prisma.classroom.findUnique({
+      where: { id: req.body.classroomId },
+      include: {
+        grade: true,
+        section: true
+      }
+    });
+    
+    if (!classroom) {
+      return res.status(404).json({ message: "Classroom not found" });
+    }
+    
+    if (classroom.schoolId !== req.body.schoolId) {
+      return res.status(400).json({ message: "Classroom does not belong to the specified school" });
+    }
+    
+    const student = await prisma.student.create({
+      data: {
+        ...req.body,
+        gradeLevel: classroom.grade.level,
+        sectionLabel: classroom.section.label,
+        enrolledAt: new Date()
+      }
+    });
     res.status(201).json(student);
   })
 );
