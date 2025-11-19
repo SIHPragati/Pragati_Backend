@@ -151,8 +151,118 @@ enrollmentRouter.post(
         return res.status(403).json({ message: "Forbidden" });
       }
     }
+    
+    // Check if this enrollment already exists
+    const existing = await prisma.studentSubject.findUnique({
+      where: {
+        studentId_teacherSubjectId: {
+          studentId: req.body.studentId,
+          teacherSubjectId: req.body.teacherSubjectId
+        }
+      }
+    });
+    
+    if (existing) {
+      return res.status(409).json({ 
+        message: "This student is already enrolled in this subject",
+        existingRecord: existing
+      });
+    }
+    
     const record = await prisma.studentSubject.create({ data: req.body });
     res.status(201).json(record);
+  })
+);
+
+enrollmentRouter.get(
+  "/student-subjects",
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
+  asyncHandler(async (req, res) => {
+    const studentId = req.query.studentId ? BigInt(String(req.query.studentId)) : undefined;
+    const teacherSubjectId = req.query.teacherSubjectId ? BigInt(String(req.query.teacherSubjectId)) : undefined;
+    const classroomId = req.query.classroomId ? BigInt(String(req.query.classroomId)) : undefined;
+    
+    const whereClause: {
+      studentId?: bigint;
+      teacherSubjectId?: bigint;
+      teacherSubject?: { classroomId?: bigint; teacherId?: bigint };
+      student?: { schoolId: bigint };
+    } = {};
+    
+    // Apply filters
+    if (studentId) whereClause.studentId = studentId;
+    if (teacherSubjectId) whereClause.teacherSubjectId = teacherSubjectId;
+    if (classroomId) {
+      whereClause.teacherSubject = { classroomId };
+    }
+    
+    // Role-based filtering
+    if (req.user?.role === "TEACHER") {
+      if (req.user.teacherId) {
+        whereClause.teacherSubject = {
+          ...whereClause.teacherSubject,
+          teacherId: req.user.teacherId
+        };
+      }
+    }
+    
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      whereClause.student = {
+        schoolId: req.user.schoolId
+      };
+    }
+    
+    const enrollments = await prisma.studentSubject.findMany({
+      where: whereClause,
+      include: {
+        student: {
+          select: {
+            firstName: true,
+            lastName: true,
+            code: true
+          }
+        },
+        teacherSubject: {
+          include: {
+            subject: {
+              select: {
+                name: true,
+                code: true
+              }
+            },
+            teacher: {
+              select: {
+                firstName: true,
+                lastName: true
+              }
+            },
+            classroom: {
+              select: {
+                grade: {
+                  select: {
+                    name: true
+                  }
+                },
+                section: {
+                  select: {
+                    label: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      orderBy: [
+        { enrolledOn: 'desc' },
+        { student: { firstName: 'asc' } }
+      ]
+    });
+    
+    res.json(enrollments);
   })
 );
 

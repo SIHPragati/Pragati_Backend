@@ -182,8 +182,11 @@ attendanceRouter.get(
       return res.status(404).json({ message: "Student not found" });
     }
 
-    if (req.user?.role === "STUDENT" && req.user.studentId !== student.id) {
-      return res.status(403).json({ message: "Forbidden" });
+    if (req.user?.role === "STUDENT") {
+      const userStudentId = req.user.studentId ? BigInt(req.user.studentId) : null;
+      if (userStudentId !== student.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     }
 
     if (req.user?.role === "TEACHER" && req.user.teacher && req.user.teacher.schoolId !== student.schoolId) {
@@ -252,8 +255,11 @@ attendanceRouter.get(
     const from = req.query.from ? new Date(String(req.query.from)) : undefined;
     const to = req.query.to ? new Date(String(req.query.to)) : undefined;
 
-    if (req.user?.role === "STUDENT" && req.user.studentId !== studentId) {
-      return res.status(403).json({ message: "Forbidden" });
+    if (req.user?.role === "STUDENT") {
+      const userStudentId = req.user.studentId ? BigInt(req.user.studentId) : null;
+      if (userStudentId !== studentId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     }
 
     if (req.user?.role === "TEACHER" && req.user.teacher) {

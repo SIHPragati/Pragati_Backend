@@ -126,9 +126,20 @@ authRouter.post(
 authRouter.get(
   "/users",
   authenticate,
-  authorizeRoles("ADMIN", "GOVERNMENT"),
-  asyncHandler(async (_req, res) => {
+  authorizeRoles("ADMIN", "GOVERNMENT", "PRINCIPAL"),
+  asyncHandler(async (req, res) => {
+    let whereClause: { schoolId?: bigint } = {};
+    
+    // Principals can only see users from their own school
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      whereClause.schoolId = req.user.schoolId;
+    }
+    
     const users = await prisma.user.findMany({
+      where: whereClause,
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

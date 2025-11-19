@@ -78,8 +78,8 @@ The Pragati backend exposes a JSON API rooted at `/api`. All identifiers are sto
 - **Notes**: Principals must set `role: "STUDENT"` and can only create accounts for students in their school. When `studentId` is provided, the system verifies it belongs to the principal's school.
 
 ### GET `/api/auth/users`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: List all platform users.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: List platform users. Principals can only view users from their own school.
 - **Response 200**
 ```json
 [
@@ -501,6 +501,30 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 - **Response 201**
 ```json
 { "id": "33", "studentId": "45", "teacherSubjectId": "12", "status": "active" }
+```
+- **Errors**: `409` if the student is already enrolled in this subject.
+
+### GET `/api/enrollment/student-subjects`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
+- **Description**: Fetch student-subject enrollments with student, teacher, subject, and classroom details. Teachers see only their own assignments; principals see all enrollments in their school.
+- **Query Parameters**: Optional `studentId`, `teacherSubjectId`, `classroomId` for filtering.
+- **Response 200**
+```json
+[
+	{
+		"id": "33",
+		"studentId": "45",
+		"teacherSubjectId": "12",
+		"status": "active",
+		"enrolledOn": "2025-06-05",
+		"student": { "firstName": "John", "lastName": "Doe", "code": "STU-001" },
+		"teacherSubject": {
+			"subject": { "name": "Mathematics", "code": "MATH8" },
+			"teacher": { "firstName": "Jane", "lastName": "Smith" },
+			"classroom": { "grade": { "name": "Grade 8" }, "section": { "label": "A" } }
+		}
+	}
+]
 ```
 
 ### POST `/api/enrollment/student-groups`

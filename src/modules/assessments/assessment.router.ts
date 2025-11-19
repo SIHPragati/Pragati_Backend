@@ -70,8 +70,11 @@ assessmentRouter.get(
   authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL", "STUDENT"),
   asyncHandler(async (req, res) => {
     const studentId = BigInt(req.params.studentId);
-    if (req.user?.role === "STUDENT" && req.user.studentId !== studentId) {
-      return res.status(403).json({ message: "Forbidden" });
+    if (req.user?.role === "STUDENT") {
+      const userStudentId = req.user.studentId ? BigInt(req.user.studentId) : null;
+      if (userStudentId !== studentId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
     }
     if (
       (req.user?.role === "TEACHER" && req.user.teacher) ||
