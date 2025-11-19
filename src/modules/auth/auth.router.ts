@@ -67,10 +67,47 @@ authRouter.post(
 authRouter.post(
   "/users",
   authenticate,
-  authorizeRoles("ADMIN"),
+  authorizeRoles("ADMIN", "PRINCIPAL"),
   validateBody(createUserSchema),
   asyncHandler(async (req, res) => {
     const { password, ...rest } = req.body;
+    
+    // Principals can only create STUDENT accounts in their own school
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      
+      // Must be creating a student account
+      if (rest.role !== "STUDENT") {
+        return res.status(403).json({ message: "Principals can only create STUDENT user accounts" });
+      }
+      
+      // Must be for their school
+      if (rest.schoolId && rest.schoolId !== req.user.schoolId) {
+        return res.status(403).json({ message: "Principals can only create users for their own school" });
+      }
+      
+      // If studentId provided, verify it belongs to their school
+      if (rest.studentId) {
+        const student = await prisma.student.findUnique({
+          where: { id: rest.studentId },
+          select: { schoolId: true }
+        });
+        
+        if (!student) {
+          return res.status(404).json({ message: "Student not found" });
+        }
+        
+        if (student.schoolId !== req.user.schoolId) {
+          return res.status(403).json({ message: "Cannot create user for student from another school" });
+        }
+      }
+      
+      // Ensure schoolId is set
+      rest.schoolId = req.user.schoolId;
+    }
+    
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({

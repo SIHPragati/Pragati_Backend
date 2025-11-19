@@ -47,8 +47,8 @@ The Pragati backend exposes a JSON API rooted at `/api`. All identifiers are sto
 - **Errors**: `401` invalid credentials, `403` user blocked.
 
 ### POST `/api/auth/users`
-- **Roles**: `ADMIN`
-- **Description**: Create an application user mapped to optional teacher/student records.
+- **Roles**: `ADMIN`, `PRINCIPAL`
+- **Description**: Create an application user mapped to optional teacher/student records. Principals can only create STUDENT user accounts for students in their own school.
 - **Request**
 ```json
 {
@@ -75,6 +75,7 @@ The Pragati backend exposes a JSON API rooted at `/api`. All identifiers are sto
 	"updatedAt": "2025-11-16T06:57:00.000Z"
 }
 ```
+- **Notes**: Principals must set `role: "STUDENT"` and can only create accounts for students in their school. When `studentId` is provided, the system verifies it belongs to the principal's school.
 
 ### GET `/api/auth/users`
 - **Roles**: `ADMIN`, `GOVERNMENT`
@@ -137,8 +138,8 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 [
 
 ### POST `/api/core/grades`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create an academic grade level for a school.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create an academic grade level for a school. Principals can create grades in their own school.
 - **Request**
 ```json
 { "schoolId": "1", "name": "Grade 8", "level": 8 }
@@ -148,6 +149,28 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 { "id": "10", "schoolId": "1", "name": "Grade 8", "level": 8, "isActive": true }
 ```
 
+### POST `/api/core/grades/bulk`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Bulk create multiple grades at once (e.g., Grade 1 through 12 with one API call). The `nameFormat` uses `{level}` as a placeholder. Principals can only create grades in their own school.
+- **Request**
+```json
+{
+	"schoolId": "1",
+	"startLevel": 1,
+	"endLevel": 12,
+	"nameFormat": "Grade {level}"
+}
+```
+- **Response 201**
+```json
+{
+	"message": "Created 12 grades",
+	"count": 12,
+	"range": { "startLevel": 1, "endLevel": 12 }
+}
+```
+- **Notes**: Uses `skipDuplicates: true`, so existing grades at the same level won't cause errors.
+
 ### GET `/api/core/grades`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
 - **Description**: List grades. Optional `schoolId` query (auto-set for school-scoped users).
@@ -156,8 +179,24 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 [
 	{ "id": "10", "schoolId": "1", "name": "Grade 8", "level": 8 }
 ]
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create a section (division) within a grade.
+```
+
+### PATCH `/api/core/grades/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update grade name or toggle active status. Principals can only edit grades in their own school.
+- **Request**
+```json
+{ "name": "Grade 8 Advanced", "isActive": false }
+```
+- **Response 200**
+```json
+{ "id": "10", "schoolId": "1", "name": "Grade 8 Advanced", "level": 8, "isActive": false }
+```
+- **Notes**: All fields are optional.
+
+### POST `/api/core/sections`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create a section (division) within a grade. Principals can create sections in grades from their own school.
 - **Request**
 ```json
 { "gradeId": "10", "label": "A" }
@@ -166,6 +205,26 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ```json
 { "id": "4", "gradeId": "10", "label": "A" }
 ```
+
+### POST `/api/core/sections/bulk`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Bulk create multiple sections at once for a grade (e.g., A through F with one API call). Principals can only create sections in grades from their own school.
+- **Request**
+```json
+{
+	"gradeId": "10",
+	"labels": ["A", "B", "C", "D", "E", "F"]
+}
+```
+- **Response 201**
+```json
+{
+	"message": "Created 6 sections",
+	"count": 6,
+	"labels": ["A", "B", "C", "D", "E", "F"]
+}
+```
+- **Notes**: Uses `skipDuplicates: true`, so existing sections with the same label won't cause errors. Maximum 26 sections per request. Labels must be unique within the request.
 
 ### GET `/api/core/sections`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
@@ -177,9 +236,21 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ]
 ```
 
+### PATCH `/api/core/sections/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update section label. Principals can only edit sections in their own school.
+- **Request**
+```json
+{ "label": "B" }
+```
+- **Response 200**
+```json
+{ "id": "4", "gradeId": "10", "label": "B" }
+```
+
 ### POST `/api/core/classrooms`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create a classroom record linking school, grade, and section.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create a classroom record linking school, grade, and section. Principals can create classrooms in their own school.
 - **Request**
 ```json
 { "schoolId": "1", "gradeId": "10", "sectionId": "4", "academicYear": "2025-2026" }
@@ -205,9 +276,21 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ]
 ```
 
+### PATCH `/api/core/classrooms/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update classroom details. Principals can only edit classrooms in their own school.
+- **Request**
+```json
+{ "academicYear": "2026-2027" }
+```
+- **Response 200**
+```json
+{ "id": "25", "schoolId": "1", "gradeId": "10", "sectionId": "4", "academicYear": "2026-2027" }
+```
+
 ### POST `/api/core/teachers`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create a teacher profile.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create a teacher profile. Principals can create teachers in their own school.
 - **Request**
 ```json
 { "schoolId": "1", "firstName": "Tina", "lastName": "Teacher", "email": "teacher@school.test" }
@@ -227,9 +310,21 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ]
 ```
 
+### PATCH `/api/core/teachers/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update teacher details. Principals can only edit teachers in their own school.
+- **Request**
+```json
+{ "firstName": "Updated", "email": "newemail@school.test" }
+```
+- **Response 200**
+```json
+{ "id": "7", "schoolId": "1", "firstName": "Updated", "lastName": "Teacher", "email": "newemail@school.test" }
+```
+
 ### POST `/api/core/subjects`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create a subject catalog entry.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create a subject catalog entry. Principals can create subjects in their own school.
 - **Request**
 ```json
 { "schoolId": "1", "code": "MATH8", "name": "Mathematics" }
@@ -249,28 +344,54 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ]
 ```
 
+### PATCH `/api/core/subjects/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update subject name or code. Principals can only edit subjects in their own school.
+- **Request**
+```json
+{ "name": "Advanced Mathematics", "code": "MATH8A" }
+```
+- **Response 200**
+```json
+{ "id": "3", "code": "MATH8A", "name": "Advanced Mathematics", "schoolId": "1" }
+```
+- **Notes**: All fields are optional.
+
 ### POST `/api/core/students`
-- **Roles**: `ADMIN`, `GOVERNMENT`
-- **Description**: Create a student profile and tie it to a classroom.
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Create a student profile and tie it to a classroom. `gradeLevel`, `sectionLabel`, and `enrolledAt` are automatically set from the classroom. Principals can create students in their own school.
 - **Request**
 ```json
 {
 	"schoolId": "1",
 	"classroomId": "25",
-	"classTeacherId": "7",
 	"code": "STU-0001",
 	"phoneNumber": "+15550001001",
 	"firstName": "Sanjay",
 	"lastName": "Student",
-	"gradeLevel": 8,
-	"sectionLabel": "A",
-	"enrolledAt": "2025-06-03"
+	"gender": "M",
+	"dateOfBirth": "2010-05-15",
+	"classTeacherId": "7"
 }
 ```
 - **Response 201**
 ```json
-{ "id": "45", "schoolId": "1", "classroomId": "25", "code": "STU-0001", "firstName": "Sanjay", "lastName": "Student" }
+{ 
+	"id": "45", 
+	"schoolId": "1", 
+	"classroomId": "25", 
+	"code": "STU-0001", 
+	"firstName": "Sanjay", 
+	"lastName": "Student",
+	"gender": "M",
+	"dateOfBirth": "2010-05-15",
+	"gradeLevel": 8,
+	"sectionLabel": "A",
+	"enrolledAt": "2025-11-19",
+	"active": true
+}
 ```
+- **Notes**: `gender` ("M", "F", "O"), `dateOfBirth`, and `classTeacherId` are optional.
 
 ### GET `/api/core/students`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
@@ -278,7 +399,7 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 - **Response 200**
 ```json
 [
-	{ "id": "45", "classroomId": "25", "firstName": "Sanjay", "lastName": "Student" }
+	{ "id": "45", "classroomId": "25", "firstName": "Sanjay", "lastName": "Student", "active": true }
 ]
 ```
 
@@ -291,12 +412,41 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 	"id": "45",
 	"firstName": "Sanjay",
 	"lastName": "Student",
+	"gender": "M",
+	"dateOfBirth": "2010-05-15",
 	"classroom": { "id": "25", "grade": { "name": "Grade 8" }, "section": { "label": "A" } },
 	"subjects": [ { "id": "3", "code": "MATH8", "name": "Mathematics" } ],
 	"attendances": [ { "sessionDate": "2025-06-10", "status": "present" } ]
 }
 ```
 - **Notes**: Teachers must be the student's homeroom teacher; students may only fetch their own record.
+
+### PATCH `/api/core/students/:id`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
+- **Description**: Update student details. When `classroomId` is changed, `gradeLevel` and `sectionLabel` are automatically updated. Principals can only edit students in their own school.
+- **Request**
+```json
+{
+	"classroomId": "26",
+	"firstName": "Updated",
+	"phoneNumber": "+15550001002",
+	"gender": "F",
+	"active": false
+}
+```
+- **Response 200**
+```json
+{ 
+	"id": "45", 
+	"schoolId": "1", 
+	"classroomId": "26", 
+	"firstName": "Updated",
+	"gradeLevel": 9,
+	"sectionLabel": "B",
+	"active": false
+}
+```
+- **Notes**: All fields are optional. Setting `active: false` effectively disables the student.
 
 ## Enrollment (`/api/enrollment`)
 
@@ -317,7 +467,29 @@ All routes require authorization. Teachers automatically scope to their `schoolI
 ```json
 { "id": "12", "teacherId": "7", "subjectId": "3", "classroomId": "25", "startDate": "2025-06-01", "endDate": null }
 ```
+- **Errors**: `409` if the same teacher-subject-classroom assignment with the same start date already exists.
 - **Notes**: Teachers can only manage their own assignments; principals must belong to the same school.
+
+### GET `/api/enrollment/teacher-subjects`
+- **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`
+- **Description**: Fetch teacher-subject assignments with teacher, subject, and classroom details. Teachers automatically see only their own assignments; principals see all assignments in their school.
+- **Query Parameters**: Optional `teacherId`, `classroomId`, `subjectId` for filtering.
+- **Response 200**
+```json
+[
+	{
+		"id": "12",
+		"teacherId": "7",
+		"subjectId": "3",
+		"classroomId": "25",
+		"startDate": "2025-06-01",
+		"endDate": null,
+		"teacher": { "firstName": "John", "lastName": "Doe" },
+		"subject": { "code": "MATH101", "name": "Mathematics" },
+		"classroom": { "grade": { "name": "Grade 8" }, "section": { "label": "A" } }
+	}
+]
+```
 
 ### POST `/api/enrollment/student-subjects`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `TEACHER`, `PRINCIPAL`

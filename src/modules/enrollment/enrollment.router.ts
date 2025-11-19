@@ -29,8 +29,102 @@ enrollmentRouter.post(
         return res.status(403).json({ message: "Forbidden" });
       }
     }
+    
+    // Check if this assignment already exists
+    const existing = await prisma.teacherSubject.findFirst({
+      where: {
+        teacherId: req.body.teacherId,
+        subjectId: req.body.subjectId,
+        classroomId: req.body.classroomId,
+        startDate: req.body.startDate
+      }
+    });
+    
+    if (existing) {
+      return res.status(409).json({ 
+        message: "This teacher is already assigned to this subject in this classroom with the same start date",
+        existingRecord: existing
+      });
+    }
+    
     const record = await prisma.teacherSubject.create({ data: req.body });
     res.status(201).json(record);
+  })
+);
+
+enrollmentRouter.get(
+  "/teacher-subjects",
+  authorizeRoles("ADMIN", "GOVERNMENT", "TEACHER", "PRINCIPAL"),
+  asyncHandler(async (req, res) => {
+    const teacherId = req.query.teacherId ? BigInt(String(req.query.teacherId)) : undefined;
+    const classroomId = req.query.classroomId ? BigInt(String(req.query.classroomId)) : undefined;
+    const subjectId = req.query.subjectId ? BigInt(String(req.query.subjectId)) : undefined;
+    
+    const whereClause: {
+      teacherId?: bigint;
+      classroomId?: bigint;
+      subjectId?: bigint;
+      teacher?: { schoolId: bigint };
+    } = {};
+    
+    // Apply filters
+    if (teacherId) whereClause.teacherId = teacherId;
+    if (classroomId) whereClause.classroomId = classroomId;
+    if (subjectId) whereClause.subjectId = subjectId;
+    
+    // Role-based filtering
+    if (req.user?.role === "TEACHER") {
+      if (req.user.teacherId) {
+        whereClause.teacherId = req.user.teacherId;
+      }
+    }
+    
+    if (req.user?.role === "PRINCIPAL") {
+      if (!req.user.schoolId) {
+        return res.status(400).json({ message: "Principal account must be linked to a school" });
+      }
+      whereClause.teacher = {
+        schoolId: req.user.schoolId
+      };
+    }
+    
+    const assignments = await prisma.teacherSubject.findMany({
+      where: whereClause,
+      include: {
+        teacher: {
+          select: {
+            firstName: true,
+            lastName: true
+          }
+        },
+        subject: {
+          select: {
+            code: true,
+            name: true
+          }
+        },
+        classroom: {
+          select: {
+            grade: {
+              select: {
+                name: true
+              }
+            },
+            section: {
+              select: {
+                label: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [
+        { startDate: 'desc' },
+        { classroom: { grade: { level: 'asc' } } }
+      ]
+    });
+    
+    res.json(assignments);
   })
 );
 
