@@ -72,15 +72,15 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const { password, ...rest } = req.body;
     
-    // Principals can only create STUDENT accounts in their own school
+    // Principals can only create STUDENT and TEACHER accounts in their own school
     if (req.user?.role === "PRINCIPAL") {
       if (!req.user.schoolId) {
         return res.status(400).json({ message: "Principal account must be linked to a school" });
       }
       
-      // Must be creating a student account
-      if (rest.role !== "STUDENT") {
-        return res.status(403).json({ message: "Principals can only create STUDENT user accounts" });
+      // Can only create student or teacher accounts
+      if (rest.role !== "STUDENT" && rest.role !== "TEACHER") {
+        return res.status(403).json({ message: "Principals can only create STUDENT and TEACHER user accounts" });
       }
       
       // Must be for their school
@@ -101,6 +101,22 @@ authRouter.post(
         
         if (student.schoolId !== req.user.schoolId) {
           return res.status(403).json({ message: "Cannot create user for student from another school" });
+        }
+      }
+      
+      // If teacherId provided, verify it belongs to their school
+      if (rest.teacherId) {
+        const teacher = await prisma.teacher.findUnique({
+          where: { id: rest.teacherId },
+          select: { schoolId: true }
+        });
+        
+        if (!teacher) {
+          return res.status(404).json({ message: "Teacher not found" });
+        }
+        
+        if (teacher.schoolId !== req.user.schoolId) {
+          return res.status(403).json({ message: "Cannot create user for teacher from another school" });
         }
       }
       

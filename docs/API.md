@@ -59,7 +59,7 @@ After running the seed script (`npx ts-node scripts/seedMockData.ts`), these acc
 
 ### POST `/api/auth/users`
 - **Roles**: `ADMIN`, `PRINCIPAL`
-- **Description**: Create an application user mapped to optional teacher/student records. Principals can only create STUDENT user accounts for students in their own school.
+- **Description**: Create an application user mapped to optional teacher/student records. Principals can only create STUDENT and TEACHER user accounts for staff/students in their own school.
 - **Request**
 ```json
 {
@@ -86,7 +86,7 @@ After running the seed script (`npx ts-node scripts/seedMockData.ts`), these acc
 	"updatedAt": "2025-11-16T06:57:00.000Z"
 }
 ```
-- **Notes**: Principals must set `role: "STUDENT"` and can only create accounts for students in their school. When `studentId` is provided, the system verifies it belongs to the principal's school.
+- **Notes**: Principals must set `role` to either "STUDENT" or "TEACHER" and can only create accounts for staff/students in their school. When `studentId` or `teacherId` is provided, the system verifies they belong to the principal's school.
 
 ### GET `/api/auth/users`
 - **Roles**: `ADMIN`, `GOVERNMENT`, `PRINCIPAL`
