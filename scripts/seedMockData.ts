@@ -213,6 +213,12 @@ export async function seedMockData() {
     schoolId: school.id
   });
 
+  const _governmentUser = await upsertUser({
+    email: "government@mock.test",
+    role: "GOVERNMENT",
+    password: "GovPass123!"
+  });
+
   console.log("Seed complete", {
     schoolId: school.id.toString(),
     classroomId: classroom.id.toString(),

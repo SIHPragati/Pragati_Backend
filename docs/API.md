@@ -22,6 +22,17 @@ The Pragati backend exposes a JSON API rooted at `/api`. All identifiers are sto
 
 ## Authentication
 
+### Mock Credentials
+After running the seed script (`npx ts-node scripts/seedMockData.ts`), these accounts are available:
+
+| Role | Email | Password |
+|------|-------|----------|
+| ADMIN | admin@mock.test | AdminPass123! |
+| GOVERNMENT | government@mock.test | GovPass123! |
+| PRINCIPAL | principal@mock.test | PrincipalPass123! |
+| TEACHER | teacher@mock.test | TeacherPass123! |
+| STUDENT | student@mock.test | StudentPass123! |
+
 ### POST `/api/auth/login`
 - **Roles**: Public
 - **Description**: Exchange credentials for a JWT used across protected routes.
